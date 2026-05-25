@@ -65,6 +65,8 @@ class AppConfig:
     google_service_account_file: str | None
     google_service_account_json: str | None
     gemini_api_key: str | None
+    vertex_ai_project: str | None
+    vertex_ai_location: str
     debug_llm_all: bool
     gemini_model: str
     gemini_max_jobs: int
@@ -116,6 +118,8 @@ class AppConfig:
             google_service_account_file=_optional_env("GOOGLE_SERVICE_ACCOUNT_FILE"),
             google_service_account_json=_optional_env("GOOGLE_SERVICE_ACCOUNT_JSON"),
             gemini_api_key=_optional_env("GEMINI_API_KEY"),
+            vertex_ai_project=_optional_env("GOOGLE_CLOUD_PROJECT"),
+            vertex_ai_location=_optional_env("VERTEX_AI_LOCATION", "us-central1") or "us-central1",
             debug_llm_all=_bool_env("DEBUG_LLM_ALL", False),
             gemini_model=_optional_env("GEMINI_MODEL", "gemini-2.5-flash") or "gemini-2.5-flash",
             gemini_max_jobs=_int_env("GEMINI_MAX_JOBS", 12),

@@ -7,7 +7,9 @@ import os
 import re
 from typing import Any
 
-import requests
+import vertexai
+from google.oauth2 import service_account
+from vertexai.generative_models import GenerationConfig, GenerativeModel
 
 from config import AppConfig
 
@@ -47,11 +49,26 @@ Avoid roles centered on:
 class GeminiAnalyzer:
     def __init__(self, config: AppConfig) -> None:
         self.config = config
-        self.session = requests.Session()
-        self.url = (
-            f"https://generativelanguage.googleapis.com/v1beta/models/"
-            f"{config.gemini_model}:generateContent"
-        )
+        self._model: GenerativeModel | None = None
+
+        if config.vertex_ai_project:
+            credentials = service_account.Credentials.from_service_account_info(
+                config.service_account_info(),
+                scopes=["https://www.googleapis.com/auth/cloud-platform"],
+            )
+            vertexai.init(
+                project=config.vertex_ai_project,
+                location=config.vertex_ai_location,
+                credentials=credentials,
+            )
+            self._model = GenerativeModel(config.gemini_model)
+            LOGGER.info(
+                "Vertex AI initialized: project=%s location=%s model=%s",
+                config.vertex_ai_project,
+                config.vertex_ai_location,
+                config.gemini_model,
+            )
+
         self.cache_path = os.path.join("cache", "gemini_cache.json")
         self._load_cache()
         self.gemini_calls = 0
@@ -70,6 +87,7 @@ class GeminiAnalyzer:
 
     def _save_cache(self) -> None:
         try:
+            os.makedirs(os.path.dirname(self.cache_path), exist_ok=True)
             with open(self.cache_path, "w", encoding="utf-8") as f:
                 json.dump(self.cache, f, indent=2)
         except Exception as e:
@@ -86,7 +104,6 @@ class GeminiAnalyzer:
     ) -> list[dict[str, str]]:
         config = self.config
 
-        # Candidate pool: only shortlist jobs unless override
         if config.gemini_only_shortlist and shortlist_jobs is not None:
             candidate_jobs = shortlist_jobs
         else:
@@ -106,7 +123,6 @@ class GeminiAnalyzer:
         for job in scored_jobs:
             job_key = self._job_key(job)
 
-            # Not in shortlist pool — leave LLM fields blank
             if job_key not in eligible_keys:
                 not_analyzed_count += 1
                 enriched.append(self._not_analyzed_fields(job))
@@ -114,36 +130,32 @@ class GeminiAnalyzer:
 
             cache_key = self._cache_key(job)
 
-            # Cache hit
             if cache_key in self.cache:
                 llm_fields = self.cache[cache_key]
                 valid, reason = self._validate_llm_fields(llm_fields)
                 if valid:
                     self.cache_hits += 1
-                    self.log_msgs.append(f"Gemini cache hit: {job.get('Company')} | {job.get('Role')}")
+                    self.log_msgs.append(f"Vertex AI cache hit: {job.get('Company')} | {job.get('Role')}")
                     enriched.append(self._merge_job(job, llm_fields, gemini_analyzed="Cached"))
                 else:
                     self.log_msgs.append(
-                        f"Gemini stale cache (fallback): {job.get('Company')} | {job.get('Role')} | {reason}"
+                        f"Vertex AI stale cache (fallback): {job.get('Company')} | {job.get('Role')} | {reason}"
                     )
                     enriched.append(self._fallback_fields(job, reason=f"Stale cache: {reason}"))
                 continue
 
-            # Dry run — do not call API
             if config.gemini_dry_run:
                 self.log_msgs.append(f"[DRY RUN] would analyze: {job.get('Company')} | {job.get('Role')}")
                 not_analyzed_count += 1
                 enriched.append(self._not_analyzed_fields(job))
                 continue
 
-            # Gemini disabled
             if not config.enable_gemini:
-                self.log_msgs.append(f"Gemini disabled: {job.get('Company')} | {job.get('Role')}")
+                self.log_msgs.append(f"LLM disabled: {job.get('Company')} | {job.get('Role')}")
                 not_analyzed_count += 1
                 enriched.append(self._not_analyzed_fields(job))
                 continue
 
-            # Live Gemini call
             try:
                 llm_fields = self._analyze_job(job)
                 valid, reason = self._validate_llm_fields(llm_fields)
@@ -151,15 +163,15 @@ class GeminiAnalyzer:
                     self.cache[cache_key] = llm_fields
                     self._save_cache()
                     self.gemini_calls += 1
-                    self.log_msgs.append(f"Gemini call: {job.get('Company')} | {job.get('Role')}")
+                    self.log_msgs.append(f"Vertex AI call: {job.get('Company')} | {job.get('Role')}")
                     enriched.append(self._merge_job(job, llm_fields, gemini_analyzed="Yes"))
                 else:
                     self.log_msgs.append(
-                        f"Gemini INVALID response (fallback): {job.get('Company')} | {job.get('Role')} | {reason}"
+                        f"Vertex AI INVALID response (fallback): {job.get('Company')} | {job.get('Role')} | {reason}"
                     )
                     enriched.append(self._fallback_fields(job, reason=reason))
             except Exception as exc:
-                LOGGER.exception("Gemini enrichment failed for %s | %s", job.get("Company"), job.get("Role"))
+                LOGGER.exception("Vertex AI enrichment failed for %s | %s", job.get("Company"), job.get("Role"))
                 enriched.append(self._fallback_fields(job, reason=str(exc)[:120]))
 
         self.not_analyzed_count = not_analyzed_count
@@ -172,12 +184,12 @@ class GeminiAnalyzer:
         return enriched
 
     def _log_cost_summary(self) -> None:
-        LOGGER.info("--- Gemini Cost Summary ---")
+        LOGGER.info("--- Vertex AI Cost Summary ---")
         LOGGER.info("  Shortlist candidate pool size: %d", self.candidate_pool_size)
-        LOGGER.info("  Gemini calls made: %d", self.gemini_calls)
-        LOGGER.info("  Gemini cache hits: %d", self.cache_hits)
-        LOGGER.info("  Gemini skipped (over max limit): %d", self.skipped_due_to_limit)
-        LOGGER.info("  Gemini not analyzed (Gemini Analyzed=No): %d", self.not_analyzed_count)
+        LOGGER.info("  Vertex AI calls made: %d", self.gemini_calls)
+        LOGGER.info("  Cache hits: %d", self.cache_hits)
+        LOGGER.info("  Skipped (over max limit): %d", self.skipped_due_to_limit)
+        LOGGER.info("  Not analyzed: %d", self.not_analyzed_count)
 
     def _validate_llm_fields(self, llm_fields: dict) -> tuple[bool, str]:
         try:
@@ -221,13 +233,13 @@ class GeminiAnalyzer:
             try:
                 row.update(self._analyze_resume_tailoring(job))
             except Exception as exc:
-                LOGGER.exception("Gemini resume tailoring failed for %s | %s", job.get("Company"), job.get("Role"))
-                LOGGER.error("Gemini resume tailoring error: %s", exc)
+                LOGGER.exception("Vertex AI resume tailoring failed for %s | %s", job.get("Company"), job.get("Role"))
+                LOGGER.error("Vertex AI resume tailoring error: %s", exc)
             rows.append(row)
         return rows
 
     def _should_analyze(self, job: dict[str, str]) -> bool:
-        if not self.config.gemini_api_key:
+        if not self.config.vertex_ai_project:
             return False
         if self.config.debug_llm_all:
             return True
@@ -246,7 +258,7 @@ class GeminiAnalyzer:
         shortlisted_jobs: list[dict[str, str]],
         analysis_budget: int | None,
     ) -> list[dict[str, str]]:
-        if not self.config.gemini_api_key:
+        if not self.config.vertex_ai_project:
             return []
         ranked_jobs = sorted(shortlisted_jobs, key=self._resume_sort_key, reverse=True)
         if analysis_budget is None:
@@ -277,7 +289,6 @@ class GeminiAnalyzer:
         )
 
     def _not_analyzed_fields(self, job: dict[str, str]) -> dict[str, str]:
-        """Return job with blank LLM fields. Called when Gemini was not used for this job."""
         merged = dict(job)
         merged.update(
             {
@@ -296,7 +307,6 @@ class GeminiAnalyzer:
         return merged
 
     def _fallback_fields(self, job: dict[str, str], reason: str = "") -> dict[str, str]:
-        """Return job with blank LLM fields. Called when Gemini was tried but failed/invalid."""
         merged = dict(job)
         merged.update(
             {
@@ -409,29 +419,17 @@ Strategic Summary: {job.get("LLM Strategic Summary", job.get("Opportunity Summar
         return self._generate_json(prompt)
 
     def _generate_json(self, prompt: str) -> dict[str, Any]:
-        response = self.session.post(
-            self.url,
-            params={"key": self.config.gemini_api_key},
-            json={
-                "contents": [{"parts": [{"text": prompt}]}],
-                "generationConfig": {"responseMimeType": "application/json"},
-            },
-            timeout=90,
+        if self._model is None:
+            raise RuntimeError(
+                "Vertex AI model not initialized. Set GOOGLE_CLOUD_PROJECT in your .env."
+            )
+        response = self._model.generate_content(
+            prompt,
+            generation_config=GenerationConfig(
+                response_mime_type="application/json",
+            ),
         )
-        response.raise_for_status()
-        payload = response.json()
-        text = self._extract_text(payload)
-        return self._parse_json(text)
-
-    def _extract_text(self, payload: dict[str, Any]) -> str:
-        candidates = payload.get("candidates") or []
-        if not candidates:
-            raise RuntimeError("Gemini returned no candidates.")
-        parts = candidates[0].get("content", {}).get("parts") or []
-        text = "".join(part.get("text", "") for part in parts)
-        if not text:
-            raise RuntimeError("Gemini returned empty text.")
-        return text
+        return self._parse_json(response.text)
 
     def _parse_json(self, text: str) -> dict[str, Any]:
         cleaned = text.strip()

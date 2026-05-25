@@ -1,6 +1,8 @@
 # AI Career Intelligence Workflow MVP
 
-This workspace runs Apify actors locally, normalizes and scores jobs with a rules engine + Gemini LLM, generates a daily shortlist, produces referral search targets, optionally discovers company employees, and writes all outputs to Google Sheets.
+> **Branch: `vertex-ai`** — This branch replaces the Gemini REST API calls with the [Vertex AI SDK](https://cloud.google.com/vertex-ai/docs/python-sdk/use-vertex-ai-python-sdk) (`google-cloud-aiplatform`). Auth is handled via a GCP service account rather than an API key. See the `main` branch for the original Gemini REST API implementation.
+
+This workspace runs Apify actors locally, normalizes and scores jobs with a rules engine + Gemini on Vertex AI, generates a daily shortlist, produces referral search targets, optionally discovers company employees, and writes all outputs to Google Sheets.
 
 ## Workflow
 
@@ -54,8 +56,10 @@ Fill `.env` with:
 
 **Optional:**
 - `GOOGLE_SHEET_URL` — bypass Drive lookup and open a known sheet directly
-- `GEMINI_API_KEY` — enables Gemini LLM enrichment; if unset, all jobs get `Gemini Analyzed=No`
-- `GEMINI_MODEL` — defaults to `gemini-2.5-flash`
+- `GOOGLE_CLOUD_PROJECT` — your GCP project ID; enables Vertex AI LLM enrichment. If unset, all jobs get `Gemini Analyzed=No`
+- `VERTEX_AI_LOCATION` — Vertex AI region, default `us-central1`
+- `GEMINI_MODEL` — model name passed to Vertex AI `GenerativeModel`, defaults to `gemini-2.5-flash`
+- Auth reuses `GOOGLE_SERVICE_ACCOUNT_FILE`/`GOOGLE_SERVICE_ACCOUNT_JSON` — grant the service account the **Vertex AI User** IAM role in your GCP project
 - `ENABLE_GEMINI` — `true`/`false`, default `true`
 - `GEMINI_DRY_RUN` — `true` skips live Gemini calls (useful for testing), default `false`
 - `DEBUG_LLM_ALL` — `true` forces Gemini analysis on all jobs regardless of score, default `false`
@@ -165,9 +169,9 @@ Preserved fields on rerun:
 
 The script does not auto-apply, auto-message, or scrape LinkedIn profiles unless employee discovery is explicitly enabled.
 
-## Gemini Cache
+## LLM Response Cache
 
-Gemini responses are cached locally at `cache/gemini_cache.json` keyed by a SHA-256 hash of `Company + Role + Job URL + Description`. Cache hits skip live API calls and are logged as `Gemini Analyzed=Cached`. Delete the file to force re-analysis.
+Vertex AI responses are cached locally at `cache/gemini_cache.json` keyed by a SHA-256 hash of `Company + Role + Job URL + Description`. Cache hits skip live Vertex AI calls and are logged as `Gemini Analyzed=Cached`. Delete the file to force re-analysis.
 
 ## Run
 
