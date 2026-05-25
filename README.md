@@ -23,6 +23,32 @@ This repository packages a practical workflow that combines external job discove
 5. Decision layer produces a shortlist plus referral and employee-target outputs.
 6. Persistence layer writes back to Google Sheets while preserving manual recruiter-style workflow fields.
 
+```mermaid
+flowchart LR
+    OP[Operator / scheduled run]
+    CFG[Env config + local state]
+    ORCH[Python orchestrator]
+    APIFY[Apify actors]
+    NORM[Normalization]
+    SCORE[Rules engine]
+    LLM[Vertex AI enrichment]
+    CACHE[Local cache]
+    SHEETS[Google Sheets control plane]
+    OUT[Shortlist + referral + employee outputs]
+
+    OP --> ORCH
+    CFG --> ORCH
+    ORCH --> APIFY
+    APIFY --> NORM
+    NORM --> SCORE
+    SCORE --> LLM
+    LLM <--> CACHE
+    SCORE --> OUT
+    LLM --> OUT
+    OUT --> SHEETS
+    SHEETS --> ORCH
+```
+
 See [docs/architecture.md](docs/architecture.md) for a deeper system view and [docs/operating-model.md](docs/operating-model.md) for operational behavior.
 
 ## Core Use Case
