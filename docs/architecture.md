@@ -8,16 +8,30 @@ The system is a decision-support workflow for job search operations, not just a 
 
 ```mermaid
 flowchart LR
+    classDef actor fill:#eef6ff,stroke:#4d8dff,color:#133768,stroke-width:2px;
+    classDef orchestrator fill:#102840,stroke:#5bc0ff,color:#eefaff,stroke-width:2px;
+    classDef process fill:#173a2f,stroke:#68d4a5,color:#effff7,stroke-width:2px;
+    classDef ai fill:#331b45,stroke:#cc8cff,color:#fff3ff,stroke-width:2px;
+    classDef storage fill:#2b3547,stroke:#9ebdff,color:#f3f7ff;
+    classDef output fill:#3b2d16,stroke:#ffca6b,color:#fff8eb,stroke-width:2px;
+
     OP[Operator / scheduler]
-    CFG[Env config + local state]
-    ORCH[Python orchestrator\nmain.py]
-    APIFY[Apify actors\njob + employee discovery]
-    NORM[Normalization layer]
-    SCORE[Rules engine]
-    LLM[Vertex AI enrichment]
-    CACHE[Local LLM cache]
-    SHEETS[Google Sheets control plane]
-    OUT[Shortlist / referral / employee outputs]
+    CFG[Env config +<br/>local state]
+
+    subgraph PIPE[Execution Pipeline]
+        ORCH[Python orchestrator<br/>main.py]
+        APIFY[Apify actors<br/>job + employee discovery]
+        NORM[Normalization layer]
+        SCORE[Rules engine]
+        LLM[Vertex AI enrichment]
+    end
+
+    subgraph STATE[State + Operational Plane]
+        CACHE[Local LLM cache]
+        SHEETS[Google Sheets<br/>control plane]
+    end
+
+    OUT[Shortlist / referral /<br/>employee outputs]
 
     OP --> ORCH
     CFG --> ORCH
@@ -30,6 +44,13 @@ flowchart LR
     LLM --> OUT
     OUT --> SHEETS
     SHEETS --> ORCH
+
+    class OP actor;
+    class CFG,CACHE,SHEETS storage;
+    class ORCH orchestrator;
+    class APIFY,NORM,SCORE process;
+    class LLM ai;
+    class OUT output;
 ```
 
 ## Service Components

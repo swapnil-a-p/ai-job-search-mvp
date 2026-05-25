@@ -25,16 +25,30 @@ This repository packages a practical workflow that combines external job discove
 
 ```mermaid
 flowchart LR
+    classDef actor fill:#eef6ff,stroke:#4d8dff,color:#133768,stroke-width:2px;
+    classDef orchestrator fill:#102840,stroke:#5bc0ff,color:#eefaff,stroke-width:2px;
+    classDef process fill:#173a2f,stroke:#68d4a5,color:#effff7,stroke-width:2px;
+    classDef ai fill:#331b45,stroke:#cc8cff,color:#fff3ff,stroke-width:2px;
+    classDef storage fill:#2b3547,stroke:#9ebdff,color:#f3f7ff;
+    classDef output fill:#3b2d16,stroke:#ffca6b,color:#fff8eb,stroke-width:2px;
+
     OP[Operator / scheduled run]
     CFG[Env config + local state]
-    ORCH[Python orchestrator]
-    APIFY[Apify actors]
-    NORM[Normalization]
-    SCORE[Rules engine]
-    LLM[Vertex AI enrichment]
-    CACHE[Local cache]
-    SHEETS[Google Sheets control plane]
-    OUT[Shortlist + referral + employee outputs]
+
+    subgraph PIPE[Workflow Orchestration]
+        ORCH[Python orchestrator]
+        APIFY[Apify actors]
+        NORM[Normalization]
+        SCORE[Rules engine]
+        LLM[Vertex AI enrichment]
+    end
+
+    subgraph STORE[State and Control Plane]
+        CACHE[Local cache]
+        SHEETS[Google Sheets<br/>control plane]
+    end
+
+    OUT[Shortlist + referral +<br/>employee outputs]
 
     OP --> ORCH
     CFG --> ORCH
@@ -47,6 +61,13 @@ flowchart LR
     LLM --> OUT
     OUT --> SHEETS
     SHEETS --> ORCH
+
+    class OP actor;
+    class CFG,CACHE,SHEETS storage;
+    class ORCH orchestrator;
+    class APIFY,NORM,SCORE process;
+    class LLM ai;
+    class OUT output;
 ```
 
 See [docs/architecture.md](docs/architecture.md) for a deeper system view and [docs/operating-model.md](docs/operating-model.md) for operational behavior.
