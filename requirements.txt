@@ -1,0 +1,6 @@
+apify-client==1.8.1
+gspread==6.1.2
+google-auth==2.35.0
+pandas==2.2.3
+python-dotenv==1.0.1
+requests==2.34.2
