@@ -4,6 +4,34 @@
 
 The system is a decision-support workflow for job search operations, not just a scraper. It combines discovery, normalization, scoring, enrichment, and spreadsheet-driven task management.
 
+## Architecture Diagram
+
+```mermaid
+flowchart LR
+    OP[Operator / scheduler]
+    CFG[Env config + local state]
+    ORCH[Python orchestrator\nmain.py]
+    APIFY[Apify actors\njob + employee discovery]
+    NORM[Normalization layer]
+    SCORE[Rules engine]
+    LLM[Vertex AI enrichment]
+    CACHE[Local LLM cache]
+    SHEETS[Google Sheets control plane]
+    OUT[Shortlist / referral / employee outputs]
+
+    OP --> ORCH
+    CFG --> ORCH
+    ORCH --> APIFY
+    APIFY --> NORM
+    NORM --> SCORE
+    SCORE --> LLM
+    LLM <--> CACHE
+    SCORE --> OUT
+    LLM --> OUT
+    OUT --> SHEETS
+    SHEETS --> ORCH
+```
+
 ## Service Components
 
 - Apify actors for search execution and external data retrieval
