@@ -1,39 +1,66 @@
-# AI Career Intelligence Workflow MVP
+# AI Job Search MVP
 
-> **Branch: `vertex-ai`** — This branch replaces the Gemini REST API calls with the [Vertex AI SDK](https://cloud.google.com/vertex-ai/docs/python-sdk/use-vertex-ai-python-sdk) (`google-cloud-aiplatform`). Auth is handled via a GCP service account rather than an API key. See the `main` branch for the original Gemini REST API implementation.
+Cloud-oriented career intelligence pipeline for sourcing, scoring, ranking, and operationalizing job opportunities.
 
-This workspace runs Apify actors locally, normalizes and scores jobs with a rules engine + Gemini on Vertex AI, generates a daily shortlist, produces referral search targets, optionally discovers company employees, and writes all outputs to Google Sheets.
+This repository packages a practical workflow that combines external job discovery, rules-based scoring, LLM enrichment on Vertex AI, Google Sheets as an operational control plane, and optional employee/referral targeting. The implementation is intentionally MVP-shaped, but the architecture maps well to Solution Architect, cloud operations, and workflow automation conversations.
 
-## Workflow
+## What This Repo Demonstrates
 
-1. Seed `Target_Companies` tab on first run (13 default companies); subsequent runs read active entries from the sheet
-2. Run Google Search Results Scraper for each configured query (every run)
-3. Run targeted Google searches for active `Target_Companies` (every run)
-4. Optionally run LinkedIn Jobs Scraper — throttled to once every N runs via a local run counter (`state/run_counter.json`)
-5. Normalize both datasets into one job schema and deduplicate by `Company + Role + Job URL`
-6. Score jobs with the rules engine (keyword boosts/penalties, visa risk, seniority risk, transition difficulty, geo quality, global mobility, source quality, strategic company score)
-7. Build a shortlist candidate pool (top 15 by rules score) and send to Gemini for LLM enrichment (fit score, role classification, visa analysis, strategic summary)
-8. Compute `Final Score` as a weighted blend: 60% LLM score + 40% rules score
-9. Build `Daily_Shortlist` (top 10 actionable jobs re-ranked by Realistic Match Score + Global Mobility Score + Final Score)
-10. Generate `Referral_Targets` from the shortlist
-11. Run Gemini resume tailoring analysis for the top shortlisted jobs
-12. Optionally run LinkedIn Company Employees Scraper for top shortlisted companies
-13. Write all outputs to Google Sheets while preserving manual statuses
+- multi-service workflow orchestration in Python
+- API integration across Apify, Vertex AI, and Google Sheets
+- rules engine plus LLM hybrid scoring
+- operational state management for throttled third-party workloads
+- spreadsheet-driven human-in-the-loop workflow design
+- credential isolation through env-based configuration
+- cloud workflow framing suitable for GCP and extensible to broader platform architecture
 
-## Files
+## High-Level Architecture
 
-- `main.py` — orchestration and run counter logic
-- `config.py` — all environment variable parsing and defaults
-- `apify_workflow_client.py` — Apify REST API client (per-query actor runs, polling, dataset fetch)
-- `apify_client.py` — legacy client (kept for reference)
-- `normalizer.py` — raw item → unified job/employee schema
-- `scoring.py` — rules-based scoring engine
-- `llm_analyzer.py` — Gemini enrichment (job fit + resume tailoring), with local disk cache
-- `referral_targets.py` — shortlist building and referral target generation
-- `employee_targets.py` — employee target filtering and message drafting
-- `message_generator.py` — connection note templates
-- `sheets.py` — Google Sheets read/write with tab management
-- `.env.example`
+1. Discovery layer runs Apify actors for Google-based job search and optional LinkedIn collection.
+2. Normalization layer maps heterogeneous raw records into a unified job schema.
+3. Scoring layer applies deterministic heuristics for fit, risk, mobility, and strategic value.
+4. LLM layer uses Vertex AI to enrich top candidates with fit, visa, and resume-tailoring analysis.
+5. Decision layer produces a shortlist plus referral and employee-target outputs.
+6. Persistence layer writes back to Google Sheets while preserving manual recruiter-style workflow fields.
+
+See [docs/architecture.md](docs/architecture.md) for a deeper system view and [docs/operating-model.md](docs/operating-model.md) for operational behavior.
+
+## Core Use Case
+
+The workflow is designed for high-signal job search triage in cloud, AI, and solution-oriented roles such as:
+
+- Solutions Architect
+- Customer Engineer
+- Forward Deployed Engineer
+- Solutions Engineer
+- Technical GTM / platform-facing roles
+
+Instead of manually reviewing fragmented job sources every day, the pipeline consolidates sourcing, ranking, prioritization, and outreach prep into one repeatable process.
+
+## Current Workflow
+
+1. Seed `Target_Companies` on first run and load active companies from Google Sheets.
+2. Run Google Search Results Scraper for broad ATS discovery.
+3. Run targeted Google search queries for priority companies.
+4. Optionally run LinkedIn Jobs Scraper on a throttled cadence.
+5. Normalize, deduplicate, and score all discovered roles.
+6. Select a shortlist candidate pool and enrich top jobs through Vertex AI.
+7. Generate `Daily_Shortlist`, `Referral_Targets`, and optional `Employee_Targets`.
+8. Write outputs to Google Sheets while preserving manual workflow columns.
+
+## Repo Structure
+
+- `main.py` — orchestration entrypoint and run-state management
+- `config.py` — environment parsing, defaults, and config validation
+- `apify_workflow_client.py` — actor execution, polling, and dataset retrieval
+- `normalizer.py` — raw source item normalization
+- `scoring.py` — deterministic scoring and prioritization heuristics
+- `llm_analyzer.py` — Vertex AI enrichment and local cache handling
+- `referral_targets.py` — shortlist generation and referral targeting
+- `employee_targets.py` — employee filtering and outreach-draft preparation
+- `message_generator.py` — draft connection note generation
+- `sheets.py` — Google Sheets control plane integration
+- `docs/` — architecture and operating-model documentation
 
 ## Setup
 
@@ -44,9 +71,10 @@ pip install -r requirements.txt
 cp .env.example .env
 ```
 
-Fill `.env` with:
+Populate `.env` with your own values.
 
-**Required:**
+Required:
+
 - `APIFY_TOKEN`
 - `LINKEDIN_JOBS_ACTOR_ID`
 - `GOOGLE_SEARCH_ACTOR_ID`
@@ -54,136 +82,78 @@ Fill `.env` with:
 - `GOOGLE_SHEET_NAME`
 - `GOOGLE_SERVICE_ACCOUNT_FILE` or `GOOGLE_SERVICE_ACCOUNT_JSON`
 
-**Optional:**
-- `GOOGLE_SHEET_URL` — bypass Drive lookup and open a known sheet directly
-- `GOOGLE_CLOUD_PROJECT` — your GCP project ID; enables Vertex AI LLM enrichment. If unset, all jobs get `Gemini Analyzed=No`
-- `VERTEX_AI_LOCATION` — Vertex AI region, default `us-central1`
-- `GEMINI_MODEL` — model name passed to Vertex AI `GenerativeModel`, defaults to `gemini-2.5-flash`
-- Auth reuses `GOOGLE_SERVICE_ACCOUNT_FILE`/`GOOGLE_SERVICE_ACCOUNT_JSON` — grant the service account the **Vertex AI User** IAM role in your GCP project
-- `ENABLE_GEMINI` — `true`/`false`, default `true`
-- `GEMINI_DRY_RUN` — `true` skips live Gemini calls (useful for testing), default `false`
-- `DEBUG_LLM_ALL` — `true` forces Gemini analysis on all jobs regardless of score, default `false`
-- `MAX_GEMINI_CALLS_PER_RUN` — max live Gemini API calls per run, default `10`
-- `GEMINI_MAX_JOBS` — max jobs eligible for job enrichment, default `12`
-- `GEMINI_MAX_RESUME_JOBS` — max jobs analyzed for resume tailoring, default `10`
-- `GEMINI_ONLY_SHORTLIST` — `true` limits Gemini to shortlist candidates only, default `true`
-- `ENABLE_LINKEDIN_JOBS` — `true`/`false`, default `true`
-- `RUN_LINKEDIN_JOBS_EVERY_N_RUNS` — LinkedIn actor runs once every N total runs, default `7`
-- `MAX_LINKEDIN_QUERIES` — cap on LinkedIn queries per run, default `3`
-- `JOBS_MAX_RESULTS` — max LinkedIn results per query, default `50`
-- `GOOGLE_SEARCH_MAX_RESULTS` — max Google search results per query, default `30`
-- `EMPLOYEE_MAX_RESULTS_PER_COMPANY` — max employee profiles fetched per company, default `10`
-- `MAX_COMPANIES_FOR_EMPLOYEE_DISCOVERY` — max shortlisted companies to run employee discovery on, default `5`
-- `MAX_EMPLOYEES_PER_COMPANY` — max employee profiles kept per company after filtering, default `5`
-- `LINKEDIN_JOB_LOCATION` — defaults to `United States`
+Optional but important:
 
-If your Google Sheet already exists, share it with the service account email as `Editor`.
+- `GOOGLE_SHEET_URL`
+- `GOOGLE_CLOUD_PROJECT`
+- `VERTEX_AI_LOCATION`
+- `GEMINI_MODEL`
+- `ENABLE_GEMINI`
+- `RUN_LINKEDIN_JOBS_EVERY_N_RUNS`
+- `ENABLE_LINKEDIN_EMPLOYEE_DISCOVERY`
 
-## Default Queries
+If your Google Sheet already exists, share it with the service-account email as `Editor`.
 
-LinkedIn job queries default to (3 high-signal, cost-controlled):
-
-- `"Forward Deployed Engineer" AI`
-- `"GenAI Solutions Architect"`
-- `"Customer Engineer" cloud`
-
-Google search queries default to (broad ATS + startup coverage):
-
-- `site:greenhouse.io ("solutions architect" OR "customer engineer" OR "forward deployed engineer") (AWS OR cloud OR GenAI)`
-- `site:boards.greenhouse.io ("solutions architect" OR "customer engineer" OR "forward deployed engineer") (AWS OR GenAI OR cloud)`
-- `site:lever.co ("solutions architect" OR "customer engineer" OR "solutions engineer") (AWS OR cloud OR GenAI)`
-- `site:ashbyhq.com ("solutions architect" OR "customer engineer" OR "forward deployed engineer") (AWS OR cloud OR AI)`
-- `site:jobs.ashbyhq.com ("solutions architect" OR "forward deployed engineer" OR "customer engineer") (cloud OR AWS)`
-- `site:workable.com ("solutions architect" OR "customer engineer") (AWS OR cloud OR GenAI)`
-- `site:smartrecruiters.com ("solutions architect" OR "customer engineer" OR "solutions engineer") (AWS OR cloud)`
-- `site:jobs.ycombinator.com ("solutions architect" OR "customer engineer" OR "forward deployed engineer")`
-- `site:wellfound.com ("solutions architect" OR "customer engineer" OR "forward deployed engineer") (AWS OR cloud)`
-- `("genai solutions architect" OR "ai solutions architect" OR "technical gtm engineer" OR "platform architect") (AWS OR cloud) -site:linkedin.com`
-
-Override them in `.env` with JSON arrays or `||`-separated strings:
-- `LINKEDIN_JOB_QUERIES`
-- `GOOGLE_SEARCH_QUERIES`
-- `EMPLOYEE_ROLE_KEYWORDS`
-
-## Notes On Actor Inputs
-
-Actors are called per-query (one actor run per search query) rather than in a single batch. This gives cleaner per-source item counts and allows per-query result limits.
-
-- LinkedIn jobs actor: `keywords`, `location`, `maxJobs`, `sortOrder`, `publishedAt`
-- Google search actor: `queries`, `maxResults`, `csvFriendlyOutput`, `mobileResults`
-- Employee discovery: `targets`, `maxEmployees`
-
-Override entire actor inputs via:
-
-- `LINKEDIN_JOBS_ACTOR_INPUT_JSON`
-- `GOOGLE_SEARCH_ACTOR_INPUT_JSON`
-- `LINKEDIN_EMPLOYEES_ACTOR_INPUT_JSON`
-
-Those overrides take precedence over all defaults.
-
-## Output Tabs
-
-The script creates and maintains:
-
-- `Jobs_Raw` — all normalized jobs before scoring
-- `Jobs_Scored` — scored jobs with rules + LLM fields
-- `Daily_Shortlist` — top 10 actionable jobs ranked by Realistic Match Score, Global Mobility Score, and Final Score
-- `Referral_Targets` — referral search targets generated from the shortlist
-- `Employee_Targets` — LinkedIn employee profiles for top shortlisted companies (when discovery is enabled)
-- `Outreach_Tracker` — manually managed outreach log (never overwritten)
-- `Resume_Tailoring` — Gemini-generated resume tailoring guidance per shortlisted job
-- `Target_Companies` — user-managed list of priority companies; seeded with 13 defaults on first run
-
-`Jobs_Scored` includes rules-based scoring columns:
-
-- `Fit Score` — raw rules engine score
-- `Source Quality Score` — signal quality of the job posting source (ATS domain)
-- `Realistic Match Score` — career-stage fit based on seniority and transition difficulty
-- `Seniority Risk` — Low / Medium / High based on title words and years-required language
-- `Transition Difficulty` — Easy / Medium / Hard based on role overlap with target patterns
-- `Geo Quality` — Low / Medium / High based on location and sponsorship signals
-- `Global Mobility Score` — 0–25 company-level immigration/relocation signal
-- `Strategic Company Score` — 0–25 strategic relevance of the company
-- `Work Authorization Signal`, `Visa Risk`, `Sponsorship Mentioned`, `Citizenship Restriction`, `Clearance Required`, `Eligibility Notes`, `Apply Recommendation`
-
-`Jobs_Scored` also includes LLM columns (populated when Gemini is enabled):
-
-- `LLM Fit Score` — Gemini 0–100 fit score
-- `LLM Role Classification` — Strong Fit / Possible Fit / Weak Fit / Reject / Not Analyzed
-- `LLM Role Type` — role category from Gemini
-- `LLM Visa Risk` — Gemini visa assessment
-- `LLM Eligibility Notes` — Gemini eligibility summary
-- `LLM Strategic Summary` — one-sentence strategic rationale
-- `LLM Reject Reason` — reason for weak/reject classification
-- `LLM Confidence` — Gemini confidence score
-- `Gemini Analyzed` — Yes / Cached / Fallback / No
-- `Final Score` — weighted blend: 60% LLM + 40% rules (falls back to rules score when Gemini not used)
-
-Preserved fields on rerun:
-
-- `Jobs_Scored.Status`
-- `Daily_Shortlist.My Decision`, `Daily_Shortlist.Referral Sent?`, `Daily_Shortlist.Applied?`, `Daily_Shortlist.Notes`
-- `Referral_Targets.Connection Status`, `Referral_Targets.Referral Status`, `Referral_Targets.Follow-up Date`, `Referral_Targets.Notes`
-- `Employee_Targets.Connection Status`, `Employee_Targets.Referral Status`, `Employee_Targets.Follow-up Date`, `Employee_Targets.Notes`
-- `Resume_Tailoring.Resume Version`, `Resume_Tailoring.Notes`
-
-The script does not auto-apply, auto-message, or scrape LinkedIn profiles unless employee discovery is explicitly enabled.
-
-## LLM Response Cache
-
-Vertex AI responses are cached locally at `cache/gemini_cache.json` keyed by a SHA-256 hash of `Company + Role + Job URL + Description`. Cache hits skip live Vertex AI calls and are logged as `Gemini Analyzed=Cached`. Delete the file to force re-analysis.
-
-## Run
+## Running Locally
 
 ```bash
 python main.py
 ```
 
-The script logs:
+The workflow logs:
 
-- run number and LinkedIn throttle decision
-- active target companies loaded from `Target_Companies`
-- actor runs, item counts fetched, normalized job counts
-- Gemini cost summary (calls made, cache hits, skipped, not analyzed)
-- rows written per tab
-- end-of-run summary with job source breakdown and shortlist count
+- run count and LinkedIn throttle decision
+- active target companies
+- actor execution and item counts
+- LLM call/caching behavior
+- row writes per output tab
+- end-of-run summary
+
+## Output Tabs
+
+The workflow maintains:
+
+- `Jobs_Raw`
+- `Jobs_Scored`
+- `Daily_Shortlist`
+- `Referral_Targets`
+- `Employee_Targets`
+- `Outreach_Tracker`
+- `Resume_Tailoring`
+- `Target_Companies`
+
+Google Sheets acts as a lightweight operational UI, not just a dump target. The pipeline preserves manual decision fields across reruns so human workflow state is not lost.
+
+## Cloud and Architecture Positioning
+
+This repo is still an MVP, but it maps to several architecture and platform skills:
+
+- event-style orchestration and stepwise workflow design
+- service boundary management across SaaS and cloud APIs
+- ranking logic that combines deterministic and probabilistic signals
+- cost-aware throttling and selective enrichment
+- human-in-the-loop operational systems
+- integration patterns that could be migrated from local execution into schedulers, containers, or serverless jobs
+
+## Security and Credentials
+
+- real service-account JSON files are intentionally excluded from git
+- `.env` is ignored
+- local cache and state files are ignored
+- the repo is designed to run from externally supplied credentials, not embedded secrets
+
+See [SECURITY.md](SECURITY.md).
+
+## Suggested Runtime Evolution
+
+This repo currently runs as a local orchestrated workflow. A more production-like evolution would be:
+
+- containerize the pipeline and run on Cloud Run jobs or ECS scheduled tasks
+- replace local state files with cloud-managed state storage
+- move operational logs into Cloud Logging / CloudWatch equivalents
+- push results to a database or warehouse alongside Sheets
+- separate enrichment and discovery into independently schedulable tasks
+
+## Branch Note
+
+This working branch uses Vertex AI SDK integration rather than direct Gemini REST API usage. The branch exists to show the more cloud-native and enterprise-aligned path.

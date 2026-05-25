@@ -1,7 +1,10 @@
 .env
-*.json
+.env.*
+!.env.example
 GCP/
-__pycache__/
-.venv/
 cache/
 state/
+__pycache__/
+*.py[cod]
+.venv/
+.claude/
